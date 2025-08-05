@@ -47,7 +47,7 @@ class DDADdatasetSF(DGPDataset):
         filename = '{}/{}.npz'.format(
             os.path.dirname(self.path), filename.format('depth/{}'.format(self.depth_type)))
         # load and return if exists
-        if os.path.exists(filename):
+        if os.path.exists(filename) and os.path.getsize(filename) > 0:
             return np.load(filename, allow_pickle=True)['depth']
         # otherwise, create, save and return
         else:

@@ -2,6 +2,8 @@
 import time
 from collections import defaultdict
 from tqdm import tqdm
+import os
+import numpy as np
 
 import torch
 import torch.distributed as dist
@@ -121,8 +123,10 @@ class VFDepthTrainer:
         model.set_val()
         
         avg_depth_eval_metric = defaultdict(float)
-        avg_depth_eval_median = defaultdict(float)        
-        
+        avg_depth_eval_median = defaultdict(float)
+
+        cameras = ['camera_01', 'camera_05', 'camera_06', 'camera_07', 'camera_08', 'camera_09']
+
         process = tqdm(eval_dataloader)
         for batch_idx, inputs in enumerate(process):   
             # visualize synthesized depth maps
@@ -130,6 +134,28 @@ class VFDepthTrainer:
                 continue
                 
             outputs, _ = model.process_batch(inputs, self.rank)
+            '''
+			# Save DDAD
+            filename = inputs["filename"][0]  # e.g. '000150/{}/CAMERA_01/15616458250936520'
+            parts = filename.split('/')
+            scene = parts[0]
+            number = parts[-1]
+
+            depths = {}
+            for name, id in outputs.keys():
+                depth = outputs[(name, id)][("depth", 0)]
+
+                camera_name = cameras[id].upper()  # 'CAMERA_01'
+
+                out_dir = f"/mnt/James/data/CylinderDepth/data/ddad/ddad_train_val/{scene}/comparisons/vfdepth/{camera_name}"
+                os.makedirs(out_dir, exist_ok=True)
+                out_path = os.path.join(out_dir, f"{number}.npy")
+                np.save(out_path, depth.cpu().numpy())
+            '''
+
+            # Save nuscenes
+
+
             depth_eval_metric, depth_eval_median = self.logger.compute_depth_losses(inputs, outputs)
             
             for key in self.depth_metric_names:

@@ -12,7 +12,7 @@ model:
   pose_model: 'fsm'
 
 data:
-  data_path: './input_data/DDAD/ddad_train_val/ddad.json'
+  data_path: '/mnt/James/data/CylinderDepth/data/ddad/ddad_train_val/ddad.json'
   log_dir: './results/'
   dataset: 'ddad'
   back_context: 1
@@ -30,7 +30,7 @@ training:
   frame_ids: [0, -1, 1]
   
   # optimization
-  batch_size: 2
+  batch_size: 1
   num_workers: 8
   learning_rate: 0.0001
   num_epochs: 20
@@ -63,7 +63,7 @@ loss:
   pose_loss_coeff: 0.1
   
 eval:
-  eval_batch_size: 4
+  eval_batch_size: 1
   eval_num_workers: 8
   eval_min_depth: 0
   eval_max_depth: 200
