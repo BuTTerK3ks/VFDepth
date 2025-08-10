@@ -26,7 +26,7 @@ model:
   proj_d_end: 50
 
 data:
-  data_path: '/mnt/James/data/CylinderDepth/data/nuscenes'
+  data_path: '/mnt/James/data/CylinderDepth/data/nuscenes/'
   log_dir: './results/'
   dataset: 'nuscenes'
   back_context: 1

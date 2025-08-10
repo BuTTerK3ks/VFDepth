@@ -125,7 +125,8 @@ class VFDepthTrainer:
         avg_depth_eval_metric = defaultdict(float)
         avg_depth_eval_median = defaultdict(float)
 
-        cameras = ['camera_01', 'camera_05', 'camera_06', 'camera_07', 'camera_08', 'camera_09']
+        cameras_ddad = ['camera_01', 'camera_05', 'camera_06', 'camera_07', 'camera_08', 'camera_09']
+        cameras_nusc = ['CAM_FRONT', 'CAM_FRONT_LEFT', 'CAM_FRONT_RIGHT', 'CAM_BACK_LEFT', 'CAM_BACK_RIGHT', 'CAM_BACK']
 
         process = tqdm(eval_dataloader)
         for batch_idx, inputs in enumerate(process):   
@@ -134,41 +135,58 @@ class VFDepthTrainer:
                 continue
                 
             outputs, _ = model.process_batch(inputs, self.rank)
-            '''
-			# Save DDAD
-            filename = inputs["filename"][0]  # e.g. '000150/{}/CAMERA_01/15616458250936520'
-            parts = filename.split('/')
-            scene = parts[0]
-            number = parts[-1]
 
-            depths = {}
-            for name, id in outputs.keys():
-                depth = outputs[(name, id)][("depth", 0)]
 
-                camera_name = cameras[id].upper()  # 'CAMERA_01'
-
-                out_dir = f"/mnt/James/data/CylinderDepth/data/ddad/ddad_train_val/{scene}/comparisons/vfdepth/{camera_name}"
-                os.makedirs(out_dir, exist_ok=True)
-                out_path = os.path.join(out_dir, f"{number}.npy")
-                np.save(out_path, depth.cpu().numpy())
-            '''
-
-            # Save nuscenes
+            # # Save DDAD
+            # filename = inputs["filename"][0]  # e.g. '000150/{}/CAMERA_01/15616458250936520'
+            # parts = filename.split('/')
+            # scene = parts[0]
+            # number = parts[-1]
+            #
+            # depths = {}
+            # for name, id in outputs.keys():
+            #     depth = outputs[(name, id)][("depth", 0)]
+            #
+            #     camera_name = cameras[id].upper()  # 'CAMERA_01'
+            #
+            #     out_dir = f"/mnt/James/data/CylinderDepth/data/ddad/ddad_train_val/{scene}/comparisons/vfdepth/{camera_name}"
+            #     os.makedirs(out_dir, exist_ok=True)
+            #     out_path = os.path.join(out_dir, f"{number}.npy")
+            #     np.save(out_path, depth.cpu().numpy())
+			#
+            # # Save nuscenes
+            # filename = inputs["filename"][0]
+            # parts = filename.split('/')
+            # camera_name = parts[1]
+            # file_name_no_suffix = parts[-1].split('.')[0]
+			#
+            # depths = {}
+            # for name, id in outputs.keys():
+            #     depth = outputs[(name, id)][("depth", 0)]
+			#
+            #     camera_name = cameras_nusc[id].upper()  # 'CAMERA_01'
+			#
+            #     out_dir = f"/mnt/James/data/CylinderDepth/data/nuscenes/comparisons/surround/{camera_name}"
+            #     os.makedirs(out_dir, exist_ok=True)
+            #     out_path = os.path.join(out_dir, f"{file_name_no_suffix}.npy")
+            #     np.save(out_path, depth.cpu().numpy())
+	        #
+	        #
 
 
             depth_eval_metric, depth_eval_median = self.logger.compute_depth_losses(inputs, outputs)
-            
+
             for key in self.depth_metric_names:
                 avg_depth_eval_metric[key] += depth_eval_metric[key]
                 avg_depth_eval_median[key] += depth_eval_median[key]
-            
+
             if vis_results:
                 self.logger.log_result(inputs, outputs, batch_idx, self.syn_visualize)
-            
+
             if self.syn_visualize and batch_idx >= self.syn_idx:
                 process.close()
                 break
- 
+
         for key in self.depth_metric_names:
             avg_depth_eval_metric[key] /= len(eval_dataloader)
             avg_depth_eval_median[key] /= len(eval_dataloader)

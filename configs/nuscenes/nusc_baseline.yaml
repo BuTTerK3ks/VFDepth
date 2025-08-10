@@ -12,7 +12,7 @@ model:
   pose_model: 'fsm'
 
 data:
-  data_path: '/mnt/Cluster/bigwork/nhgnabua/data/nuscenes/'
+  data_path: '/mnt/James/data/CylinderDepth/data/nuscenes/'
   log_dir: './results/'
   dataset: 'nuscenes'
   back_context: 1
