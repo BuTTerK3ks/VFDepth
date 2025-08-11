@@ -58,34 +58,114 @@ class BaseModel:
     def load_weights(self):
         assert os.path.isdir(self.load_weights_dir), f'\tCannot find {self.load_weights_dir}'
         print(f'Loading a model from {self.load_weights_dir}')
-        
-        # to retrain
+
+        map_location = None
         if self.pretrain and self.ddp_enable:
-            map_location = {'cuda:%d' % 0: 'cuda:%d' % (self.world_size-1)}
-            
+            map_location = {'cuda:%d' % 0: 'cuda:%d' % (self.world_size - 1)}
+
         for n in self.models_to_load:
             print(f'Loading {n} weights...')
             path = os.path.join(self.load_weights_dir, f'{n}.pth')
+
+            # load checkpoint dict (supports plain dict or {"state_dict": ...})
+            ckpt = torch.load(path, map_location=map_location) if map_location else torch.load(path)
+            pre_trained_dict = ckpt.get("state_dict", ckpt)
+
+            # harmonize DDP/DataParallel "module." prefix between ckpt and model
             model_dict = self.models[n].state_dict()
-            
-            # distribute gpus for ddp retraining
-            if self.pretrain and self.ddp_enable:
-                pre_trained_dict = torch.load(path, map_location=map_location)
-            else: 
-                pre_trained_dict = torch.load(path)
-                
-            # load parameters
-            pre_trained_dict = {k: v for k, v in pre_trained_dict.items() if k in model_dict}
-            model_dict.update(pre_trained_dict)
-            self.models[n].load_state_dict(model_dict)
+            model_keys = model_dict.keys()
+            ckpt_keys = pre_trained_dict.keys()
+            model_has_module = any(k.startswith("module.") for k in model_keys)
+            ckpt_has_module = any(k.startswith("module.") for k in ckpt_keys)
+
+            if ckpt_has_module and not model_has_module:
+                pre_trained_dict = {k[len("module."):]: v for k, v in pre_trained_dict.items()}
+            elif model_has_module and not ckpt_has_module:
+                pre_trained_dict = {f"module.{k}": v for k, v in pre_trained_dict.items()}
+
+            # keep only keys present in model with matching tensor shapes
+            pre_trained_dict = {k: v for k, v in pre_trained_dict.items()
+                                if k in model_dict and v.shape == model_dict[k].shape}
+
+            # diagnostics AFTER harmonization/filtering
+            consumed = set(pre_trained_dict.keys())
+            leftover_in_model = sorted(set(model_dict.keys()) - consumed)
+            missing_in_model = sorted(set(consumed) - set(model_dict.keys()))
+            print(f"[{n}] provided={len(ckpt_keys)} | will_load={len(consumed)} | "
+                  f"not_in_ckpt={len(leftover_in_model)} | not_in_model={len(missing_in_model)}")
+            if leftover_in_model:
+                print(f"[{n}] not_in_ckpt examples: {leftover_in_model[:20]}")
+            if missing_in_model:
+                print(f"[{n}] not_in_model examples: {missing_in_model[:20]}")
+
+            # load (strict=False tolerates benign leftovers)
+            self.models[n].load_state_dict({**model_dict, **pre_trained_dict}, strict=False)
 
         if self.mode == 'train':
-            # loading adam state
             optim_file_path = os.path.join(self.load_weights_dir, f'{_OPTIMIZER_NAME}.pth')
             if os.path.isfile(optim_file_path):
                 try:
                     print(f'Loading {_OPTIMIZER_NAME} weights')
-                    optimizer_dict = torch.load(optim_file_path)
+                    optimizer_dict = torch.load(optim_file_path,
+                                                map_location=map_location) if map_location else torch.load(
+                        optim_file_path)
+                    self.optimizer.load_state_dict(optimizer_dict)
+                except ValueError:
+                    print(f'\tCannnot load {_OPTIMIZER_NAME} - the optimizer will be randomly initialized')
+            else:
+                print(f'\tCannot find {_OPTIMIZER_NAME} weights, so the optimizer will be randomly initialized')
+
+    def load_weights_new(self):
+        assert os.path.isdir(self.load_weights_dir), f'\tCannot find {self.load_weights_dir}'
+        print(f'Loading a model from {self.load_weights_dir}')
+
+        map_location = {'cuda:%d' % 0: 'cuda:%d' % (self.world_size - 1)} if (
+                    self.pretrain and self.ddp_enable) else None
+
+        for n in self.models_to_load:
+            print(f'Loading {n} weights...')
+            path = os.path.join(self.load_weights_dir, f'{n}.pth')
+
+            ckpt = torch.load(path, map_location=map_location)
+            if isinstance(ckpt, dict) and any(k in ckpt for k in ("state_dict", "model", "net")):
+                ckpt = ckpt.get("state_dict", ckpt.get("model", ckpt.get("net")))
+
+            model_sd = self.models[n].state_dict()
+
+            def remap_encoder_key(k: str) -> str:
+                if k.startswith("module."):
+                    k = k[7:]
+                if k.startswith("encoder.encoder."):
+                    return "depth_encoder." + k[len("encoder."):]
+                return k
+
+            encoder_src_keys = [k for k in ckpt.keys() if ".encoder." in k]
+            remapped, unused_src = {}, []
+            for k in encoder_src_keys:
+                k2 = remap_encoder_key(k)
+                v = ckpt[k]
+                if k2 in model_sd and getattr(v, "shape", None) == getattr(model_sd[k2], "shape", None):
+                    remapped[k2] = v
+                else:
+                    unused_src.append(k)
+
+            if unused_src:
+                print(f"[{n}] ERROR: {len(unused_src)} encoder tensors from checkpoint were not used.")
+                print("  examples:", unused_src[:10])
+                raise RuntimeError("Aborting load: encoder tensors not fully consumable by the provided model.")
+
+            res = self.models[n].load_state_dict({**model_sd, **remapped}, strict=False)
+            print(f"[{n}] consumed all encoder tensors from ckpt: {len(remapped)}")
+            if res.missing_keys:
+                print(f"[{n}] model parameters missing from ckpt: {len(res.missing_keys)} (first 20)")
+                print("  ", res.missing_keys[:20])
+
+        if self.mode == 'train':
+            optim_file_path = os.path.join(self.load_weights_dir, f'{_OPTIMIZER_NAME}.pth')
+            if os.path.isfile(optim_file_path):
+                try:
+                    print(f'Loading {_OPTIMIZER_NAME} weights')
+                    optimizer_dict = torch.load(optim_file_path, map_location=map_location)
                     self.optimizer.load_state_dict(optimizer_dict)
                 except ValueError:
                     print(f'\tCannnot load {_OPTIMIZER_NAME} - the optimizer will be randomly initialized')

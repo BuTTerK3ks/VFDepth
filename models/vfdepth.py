@@ -199,48 +199,49 @@ class VFDepthAlgo(BaseModel):
                     inputs[key] = [ipt[k].float().to(rank) for k in range(len(inputs[key]))]
                 else:
                     inputs[key] = ipt.float().to(rank)
-
-        use_cuda = torch.cuda.is_available()
-        if use_cuda:
-            torch.cuda.synchronize(rank)
-            torch.cuda.reset_peak_memory_stats(rank)
-
-        t0 = time.perf_counter()
+		#
+        # use_cuda = torch.cuda.is_available()
+        # if use_cuda:
+        #     torch.cuda.synchronize(rank)
+        #     #torch.cuda.reset_peak_memory_stats(rank)
+		#
+		#
+        # t0 = time.perf_counter()
         outputs = self.estimate_vfdepth(inputs)  # forward only
-        if use_cuda:
-            torch.cuda.synchronize(rank)
-        dt_ms = (time.perf_counter() - t0) * 1e3
-
-        if rank == 0:
-            if use_cuda:
-                peak_alloc_mb = torch.cuda.max_memory_allocated(rank) / (1024 ** 2)
-                peak_res_mb = torch.cuda.max_memory_reserved(rank) / (1024 ** 2)
-                print(
-                    f"[infer] {dt_ms:.2f} ms | peak_alloc={peak_alloc_mb:.1f} MiB | peak_reserved={peak_res_mb:.1f} MiB")
-
-                # accumulate 250-iter window
-                if not hasattr(self, "_prof_win"):
-                    self._prof_win = {"n": 0, "t": 0.0, "alloc": 0.0, "res": 0.0}
-                w = self._prof_win
-                w["n"] += 1;
-                w["t"] += dt_ms;
-                w["alloc"] += peak_alloc_mb;
-                w["res"] += peak_res_mb
-                if w["n"] == 250:
-                    print(f"[infer-avg/250] {w['t'] / w['n']:.2f} ms | "
-                          f"peak_alloc={w['alloc'] / w['n']:.1f} MiB | "
-                          f"peak_reserved={w['res'] / w['n']:.1f} MiB")
-                    self._prof_win = {"n": 0, "t": 0.0, "alloc": 0.0, "res": 0.0}
-            else:
-                print(f"[infer][CPU] {dt_ms:.2f} ms")
-                if not hasattr(self, "_prof_win_cpu"):
-                    self._prof_win_cpu = {"n": 0, "t": 0.0}
-                w = self._prof_win_cpu
-                w["n"] += 1;
-                w["t"] += dt_ms
-                if w["n"] == 250:
-                    print(f"[infer-avg/250][CPU] {w['t'] / w['n']:.2f} ms")
-                    self._prof_win_cpu = {"n": 0, "t": 0.0}
+        # if use_cuda:
+        #     torch.cuda.synchronize(rank)
+        # dt_ms = (time.perf_counter() - t0) * 1e3
+		#
+        # if rank == 0:
+        #     if use_cuda:
+        #         peak_alloc_mb = torch.cuda.max_memory_allocated(rank) / (1024 ** 2)
+        #         peak_res_mb = torch.cuda.max_memory_reserved(rank) / (1024 ** 2)
+        #         print(
+        #             f"[infer] {dt_ms:.2f} ms | peak_alloc={peak_alloc_mb:.1f} MiB | peak_reserved={peak_res_mb:.1f} MiB")
+		#
+        #         # accumulate 250-iter window
+        #         if not hasattr(self, "_prof_win"):
+        #             self._prof_win = {"n": 0, "t": 0.0, "alloc": 0.0, "res": 0.0}
+        #         w = self._prof_win
+        #         w["n"] += 1;
+        #         w["t"] += dt_ms;
+        #         w["alloc"] += peak_alloc_mb;
+        #         w["res"] += peak_res_mb
+        #         if w["n"] == 250:
+        #             print(f"[infer-avg/250] {w['t'] / w['n']:.2f} ms | "
+        #                   f"peak_alloc={w['alloc'] / w['n']:.1f} MiB | "
+        #                   f"peak_reserved={w['res'] / w['n']:.1f} MiB")
+        #             self._prof_win = {"n": 0, "t": 0.0, "alloc": 0.0, "res": 0.0}
+        #     else:
+        #         print(f"[infer][CPU] {dt_ms:.2f} ms")
+        #         if not hasattr(self, "_prof_win_cpu"):
+        #             self._prof_win_cpu = {"n": 0, "t": 0.0}
+        #         w = self._prof_win_cpu
+        #         w["n"] += 1;
+        #         w["t"] += dt_ms
+        #         if w["n"] == 250:
+        #             print(f"[infer-avg/250][CPU] {w['t'] / w['n']:.2f} ms")
+        #             self._prof_win_cpu = {"n": 0, "t": 0.0}
 
         losses = self.compute_losses(inputs, outputs)  # not included in timing
         return outputs, losses
